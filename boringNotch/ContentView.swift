@@ -366,6 +366,8 @@ struct ContentView: View {
                         NotchHomeView(albumArtNamespace: albumArtNamespace)
                     case .shelf:
                         ShelfView()
+                    case .quota:
+                        AIQuotaView()
                     }
                 }
                 .transition(
