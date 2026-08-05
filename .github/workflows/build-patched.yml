@@ -33,6 +33,13 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             build
 
+      - name: Re-sign without hardened runtime (needed on macOS 26/27)
+        run: |
+          APP="build/Build/Products/Release/boringNotch.app"
+          codesign -d --entitlements :- "$APP" > /tmp/bn-ent.plist 2>/dev/null
+          codesign --force --sign - --timestamp=none --entitlements /tmp/bn-ent.plist "$APP"
+          echo "Re-signed ad-hoc with sandbox entitlements, hardened runtime removed"
+
       - name: Inspect product
         run: |
           APP="build/Build/Products/Release/boringNotch.app"
