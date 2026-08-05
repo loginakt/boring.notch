@@ -73,6 +73,13 @@ class SpotifyController: MediaControllerProtocol {
     }
     
     func seek(to time: Double) async {
+        // Fast path: Spotify's local HTTP API (loopback, no AppleScript).
+        if await seekViaLocalApi(to: time) {
+            try? await Task.sleep(for: commandUpdateDelay)
+            await updatePlaybackInfo()
+            return
+        }
+        // Fallback: AppleScript, which always works when Spotify is running.
         await executeAndRefresh("set player position to \(time)")
     }
     
@@ -160,6 +167,54 @@ class SpotifyController: MediaControllerProtocol {
         }
     }
     
+// MARK: - Local HTTP API (fast seek path)
+    
+    // Spotify's desktop client exposes an unofficial local web server on
+    // 127.0.0.1. The port historically sits in this range; we scan for it
+    // rather than relying on a hard-coded value. Connecting to loopback is
+    // instant, so the scan has negligible cost even on every seek.
+    private static let localApiScanPorts = Array(4370...4400)
+
+    /// Discovers Spotify's local server and returns its port + auth token.
+    /// Returns nil when Spotify isn't serving its local API (not running,
+    /// or a version that changed/removed it).
+    private func findLocalApiSession() async -> (port: Int, token: String)? {
+        for port in Self.localApiScanPorts {
+            guard let url = URL(string: "http://127.0.0.1:\(port)/state") else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 0.4
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let token = json["toke"] as? String, !token.isEmpty
+            else { continue }
+            return (port, token)
+        }
+        return nil
+    }
+
+    /// Seeks via Spotify's local HTTP API. Returns true on a successful 2xx.
+    private func seekViaLocalApi(to time: Double) async -> Bool {
+        guard let session = await findLocalApiSession() else { return false }
+
+        let milliseconds = Int(time * 1000)
+        guard let url = URL(string: "http://127.0.0.1:\(session.port)/player/seek?ms=\(milliseconds)") else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(session.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("https://open.spotify.com", forHTTPHeaderField: "Origin")
+        request.timeoutInterval = 2
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse
+        else { return false }
+
+        return (200...299).contains(http.statusCode) || http.statusCode == 204
+    }
+
 // MARK: - Private Methods
     
     private func executeCommand(_ command: String) async {

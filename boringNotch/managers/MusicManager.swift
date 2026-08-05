@@ -654,6 +654,7 @@ class MusicManager: ObservableObject {
     /// Moves the playback position relative to the current position by `offset`.
     /// Clamps to the track bounds; if the offset would overshoot the start or end
     /// of the current track, it jumps to the previous/next track instead.
+    @MainActor
     func seek(by offset: TimeInterval) {
         let duration = songDuration
         guard duration > 0 else { return }
@@ -670,7 +671,14 @@ class MusicManager: ObservableObject {
             return
         }
 
-        seek(to: min(max(0, current + offset), duration))
+        let target = min(max(0, current + offset), duration)
+
+        // Optimistic UI update: reflect the new position immediately so the
+        // notch mirror/scrubber responds before the media app confirms it.
+        elapsedTime = target
+        timestampDate = Date()
+
+        seek(to: target)
     }
 
     /// Handles a single horizontal swipe gesture by seeking +/- 10 seconds.
