@@ -1,0 +1,55 @@
+name: Build patched boringNotch
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'v2.7.3-swipe-skip'
+
+jobs:
+  build:
+    name: Build & package
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          sw_vers
+
+      - name: Resolve Swift packages
+        run: xcodebuild -resolvePackageDependencies -project boringNotch.xcodeproj
+
+      - name: Build Release (universal, ad-hoc signed)
+        run: |
+          xcodebuild \
+            -project boringNotch.xcodeproj \
+            -scheme boringNotch \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build \
+            ARCHS='arm64 x86_64' \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+      - name: Inspect product
+        run: |
+          APP="build/Build/Products/Release/boringNotch.app"
+          file "$APP/Contents/MacOS/boringNotch"
+          codesign -dv "$APP" 2>&1 | grep -E 'Identifier|Format|TeamIdentifier' || true
+          find "$APP/Contents" -name '*.xpc' -exec codesign -dv {} \; 2>&1 | grep -E 'Identifier|Format' || true
+
+      - name: Package DMG + zip
+        run: |
+          APP="build/Build/Products/Release/boringNotch.app"
+          hdiutil create -volname "boringNotch" -srcfolder "$APP" -ov -format UDZO "$RUNNER_TEMP/boringNotch.dmg"
+          (cd "$(dirname "$APP")" && zip -r -y "$RUNNER_TEMP/boringNotch.app.zip" boringNotch.app)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: boringNotch-patched-v2.7.3
+          path: |
+            ${{ runner.temp }}/boringNotch.dmg
+            ${{ runner.temp }}/boringNotch.app.zip

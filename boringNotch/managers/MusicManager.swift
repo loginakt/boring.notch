@@ -15,6 +15,15 @@ let defaultImage: NSImage = .init(
 )!
 
 class MusicManager: ObservableObject {
+    // Direction of a horizontal swipe-based skip gesture.
+    enum SkipDirection {
+        case backward
+        case forward
+    }
+
+    /// Seconds skipped per horizontal swipe gesture.
+    static let skipGestureSeekInterval: TimeInterval = 10
+
     // MARK: - Properties
     static let shared = MusicManager()
     private var cancellables = Set<AnyCancellable>()
@@ -641,7 +650,38 @@ class MusicManager: ObservableObject {
         let newPos = min(max(0, elapsedTime + seconds), songDuration)
         seek(to: newPos)
     }
-    
+
+    /// Moves the playback position relative to the current position by `offset`.
+    /// Clamps to the track bounds; if the offset would overshoot the start or end
+    /// of the current track, it jumps to the previous/next track instead.
+    func seek(by offset: TimeInterval) {
+        let duration = songDuration
+        guard duration > 0 else { return }
+
+        let current = estimatedPlaybackPosition()
+
+        if offset < 0, current <= abs(offset) {
+            previousTrack()
+            return
+        }
+
+        if offset > 0, (duration - current) <= offset {
+            nextTrack()
+            return
+        }
+
+        seek(to: min(max(0, current + offset), duration))
+    }
+
+    /// Handles a single horizontal swipe gesture by seeking +/- 10 seconds.
+    @MainActor
+    func handleSkipGesture(direction: SkipDirection) {
+        let offset = direction == .forward
+            ? Self.skipGestureSeekInterval
+            : -Self.skipGestureSeekInterval
+        seek(by: offset)
+    }
+
     func setVolume(to level: Double) {
         if let controller = activeController {
             Task {

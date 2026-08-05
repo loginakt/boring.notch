@@ -31,6 +31,8 @@ struct ContentView: View {
 
     @State private var haptics: Bool = false
 
+    @State private var didSkipSwipe: Bool = false
+
     @Namespace var albumArtNamespace
 
     @Default(.useMusicVisualizer) var useMusicVisualizer
@@ -138,6 +140,12 @@ struct ContentView: View {
                         view
                             .panGesture(direction: .down) { translation, phase in
                                 handleDownGesture(translation: translation, phase: phase)
+                            }
+                            .panGesture(direction: .left) { translation, phase in
+                                handleSkipSwipe(direction: .left, translation: translation, phase: phase)
+                            }
+                            .panGesture(direction: .right) { translation, phase in
+                                handleSkipSwipe(direction: .right, translation: translation, phase: phase)
                             }
                     }
                     .conditionalModifier(Defaults[.closeGestureEnabled] && Defaults[.enableGestures]) { view in
@@ -566,6 +574,33 @@ struct ContentView: View {
     }
 
     // MARK: - Gesture Handling
+
+    private func handleSkipSwipe(direction: PanDirection, translation: CGFloat, phase: NSEvent.Phase) {
+        // Reset the per-gesture latch when the swipe ends.
+        if phase == .ended {
+            didSkipSwipe = false
+            return
+        }
+
+        // Only apply the skip while the notch is OPEN.
+        guard vm.notchState == .open else {
+            didSkipSwipe = false
+            return
+        }
+
+        // Fire once per swipe, only once the horizontal travel passes the sensitivity threshold.
+        guard !didSkipSwipe else { return }
+        guard translation > Defaults[.gestureSensitivity] else { return }
+
+        didSkipSwipe = true
+
+        // Swipe left = forward (+10s), swipe right = backward (-10s).
+        MusicManager.shared.handleSkipGesture(direction: direction == .left ? .forward : .backward)
+
+        if Defaults[.enableHaptics] {
+            haptics.toggle()
+        }
+    }
 
     private func handleDownGesture(translation: CGFloat, phase: NSEvent.Phase) {
         guard vm.notchState == .closed else { return }
