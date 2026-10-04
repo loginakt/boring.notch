@@ -16,6 +16,8 @@ concurrency:
 jobs:
   build:
     name: Build Boring Notch
+    # Upstream's check; skip it on forks (it needs an Xcode the runners no longer have)
+    if: github.repository == 'TheBoredTeam/boring.notch'
     strategy:
       matrix:
         platform:
