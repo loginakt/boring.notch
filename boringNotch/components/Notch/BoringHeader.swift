@@ -13,10 +13,13 @@ struct BoringHeader: View {
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @StateObject var tvm = ShelfStateViewModel.shared
+    // Observed so the tab bar appears or hides as soon as these settings change.
+    @Default(.boringShelf) private var boringShelf
+    @Default(.showAIQuota) private var showAIQuota
     var body: some View {
         HStack(spacing: 0) {
             HStack {
-                if Defaults[.showAIQuota] || ((!tvm.isEmpty || coordinator.alwaysShowTabs) && Defaults[.boringShelf]) {
+                if NotchTabs.isTabBarShown(shelfEmpty: tvm.isEmpty) {
                     TabSelectionView()
                 } else if vm.notchState == .open {
                     EmptyView()

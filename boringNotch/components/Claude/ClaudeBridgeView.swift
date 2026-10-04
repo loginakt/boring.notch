@@ -37,6 +37,8 @@ private struct ClaudeItemCard: View {
     let item: ClaudeItem
     let queued: Int
 
+    @State private var expanded = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
@@ -66,6 +68,22 @@ private struct ClaudeItemCard: View {
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(.gray)
             }
+            if isExpandable {
+                Button {
+                    expanded.toggle()
+                    // Reading a long reply shouldn't let the reply window run out.
+                    if expanded, case .finished(_, let deadline) = item.kind, deadline != nil {
+                        ClaudeBridge.shared.keepForReply(item)
+                    }
+                } label: {
+                    Image(systemName: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.gray)
+                .help(expanded ? "Collapse" : "Show the full message")
+            }
             Button {
                 ClaudeBridge.shared.answerInClaude(item)
             } label: {
@@ -83,13 +101,22 @@ private struct ClaudeItemCard: View {
     private var content: some View {
         switch item.kind {
         case .permission(let tool, let summary):
-            PermissionContent(item: item, tool: tool, summary: summary)
+            PermissionContent(item: item, tool: tool, summary: summary, expanded: expanded)
         case .question(let questions):
             QuestionContent(item: item, questions: questions)
         case .finished(let message, let deadline):
-            FinishedContent(item: item, message: message, deadline: deadline)
+            FinishedContent(item: item, message: message, deadline: deadline, expanded: expanded)
         case .notice(let message):
-            BodyText(message, lines: 5)
+            MessageText(item: item, text: message, lines: 5, expanded: expanded)
+        case .handoff(let message):
+            HandoffContent(item: item, message: message)
+        }
+    }
+
+    private var isExpandable: Bool {
+        switch item.kind {
+        case .permission, .finished, .notice: return true
+        case .question, .handoff: return false
         }
     }
 
@@ -99,6 +126,7 @@ private struct ClaudeItemCard: View {
         case .question: return "questionmark.bubble"
         case .finished: return "checkmark.circle"
         case .notice: return "bell"
+        case .handoff: return "arrow.up.forward.app"
         }
     }
 
@@ -108,25 +136,43 @@ private struct ClaudeItemCard: View {
         case .question: return "Claude is asking"
         case .finished: return "Claude finished"
         case .notice: return "Claude"
+        case .handoff: return "Claude needs you"
         }
     }
 }
 
-private struct BodyText: View {
+/// Message text that opens its chat when clicked. Collapsed it shows a few lines;
+/// expanded it shows everything, scrolling inside the card.
+private struct MessageText: View {
+    let item: ClaudeItem
     let text: String
     let lines: Int
-
-    init(_ text: String, lines: Int) {
-        self.text = text
-        self.lines = lines
-    }
+    let expanded: Bool
+    var monospaced = false
 
     var body: some View {
+        Group {
+            if expanded {
+                ScrollView(.vertical) {
+                    label(lineLimit: nil)
+                }
+                .scrollIndicators(.automatic)
+            } else {
+                label(lineLimit: lines)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { ClaudeBridge.shared.openInClaude(item) }
+        .help("Open this chat in Claude")
+    }
+
+    private func label(lineLimit: Int?) -> some View {
         Text(text)
-            .font(.system(size: 12, design: .rounded))
+            .font(monospaced ? .system(size: 11, design: .monospaced) : .system(size: 12, design: .rounded))
             .foregroundStyle(.white.opacity(0.85))
-            .lineLimit(lines)
+            .lineLimit(lineLimit)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.disabled)
     }
 }
 
@@ -154,17 +200,14 @@ private struct PermissionContent: View {
     let item: ClaudeItem
     let tool: String
     let summary: String
+    let expanded: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(summary)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.85))
-                .lineLimit(4)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            MessageText(item: item, text: summary, lines: 4, expanded: expanded, monospaced: true)
                 .padding(6)
                 .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
-            Spacer(minLength: 0)
+            if !expanded { Spacer(minLength: 0) }
             HStack(spacing: 8) {
                 PillButton(label: "Deny") { ClaudeBridge.shared.deny(item) }
                 PillButton(label: "Answer in Claude") { ClaudeBridge.shared.answerInClaude(item) }
@@ -185,31 +228,38 @@ private struct QuestionContent: View {
 
     var body: some View {
         let question = questions[index]
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                BodyText(question.question, lines: 2)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top) {
+                MessageText(item: item, text: question.question, lines: 2, expanded: false)
                 if questions.count > 1 {
                     Text("\(index + 1)/\(questions.count)")
                         .font(.system(size: 11, design: .rounded))
                         .foregroundStyle(.gray)
                 }
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 4) {
                     ForEach(question.options, id: \.self) { option in
-                        PillButton(label: option, prominent: picked.contains(option), tint: .orange) {
-                            choose(option, in: question)
+                        OptionRow(
+                            option: option,
+                            multiSelect: question.multiSelect,
+                            selected: picked.contains(option.label)
+                        ) {
+                            choose(option.label, in: question)
                         }
                     }
                 }
             }
-            Spacer(minLength: 0)
-            if question.multiSelect {
-                HStack {
-                    Spacer()
+            .scrollIndicators(.automatic)
+            HStack(spacing: 8) {
+                // Claude's own prompt also takes a typed answer ("Other").
+                PillButton(label: "Other… in Claude") { ClaudeBridge.shared.openInClaude(item) }
+                Spacer(minLength: 0)
+                if question.multiSelect {
                     PillButton(label: "Done", prominent: !picked.isEmpty, tint: .green) {
                         guard !picked.isEmpty else { return }
-                        record(question.options.filter(picked.contains).joined(separator: ", "), for: question)
+                        let labels = question.options.map(\.label).filter(picked.contains)
+                        record(labels.joined(separator: ", "), for: question)
                     }
                 }
             }
@@ -235,10 +285,67 @@ private struct QuestionContent: View {
     }
 }
 
+private struct OptionRow: View {
+    let option: ClaudeOption
+    let multiSelect: Bool
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: multiSelect ? (selected ? "checkmark.square.fill" : "square") : "circle")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(selected ? .orange : .gray)
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(option.label)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                    if !option.description.isEmpty {
+                        Text(option.description)
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(.gray)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(selected ? 0.16 : 0.08), in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct HandoffContent: View {
+    let item: ClaudeItem
+    let message: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            MessageText(item: item, text: message, lines: 3, expanded: false)
+            Text("Open in Claude to continue.")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(.orange)
+            Spacer(minLength: 0)
+            HStack {
+                Spacer(minLength: 0)
+                PillButton(label: "Open in Claude", prominent: true, tint: .orange) {
+                    ClaudeBridge.shared.openInClaude(item)
+                }
+            }
+        }
+    }
+}
+
 private struct FinishedContent: View {
     let item: ClaudeItem
     let message: String
     let deadline: Date?
+    let expanded: Bool
 
     @State private var reply = ""
     @State private var typing = false
@@ -246,8 +353,8 @@ private struct FinishedContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            BodyText(message, lines: deadline == nil ? 5 : 3)
-            Spacer(minLength: 0)
+            MessageText(item: item, text: message, lines: deadline == nil ? 5 : 3, expanded: expanded)
+            if !expanded { Spacer(minLength: 0) }
             if let deadline {
                 HStack(spacing: 8) {
                     TextField("Reply to Claude…", text: $reply)

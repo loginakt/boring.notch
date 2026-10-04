@@ -19,7 +19,8 @@ enum PanDirection {
 }
 
 extension View {
-    func panGesture(direction: PanDirection, threshold: CGFloat = 4, action: @escaping (CGFloat, NSEvent.Phase) -> Void) -> some View {
+    /// `ignoresMomentum` drops the trackpad's post-lift glide so one swipe is measured by finger travel alone.
+    func panGesture(direction: PanDirection, threshold: CGFloat = 4, ignoresMomentum: Bool = false, action: @escaping (CGFloat, NSEvent.Phase) -> Void) -> some View {
         self
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -30,13 +31,14 @@ extension View {
                     }
                     .onEnded { _ in action(0, .ended) }
             )
-            .background(ScrollMonitor(direction: direction, threshold: threshold, action: action))
+            .background(ScrollMonitor(direction: direction, threshold: threshold, ignoresMomentum: ignoresMomentum, action: action))
     }
 }
 
 private struct ScrollMonitor: NSViewRepresentable {
     let direction: PanDirection
     let threshold: CGFloat
+    let ignoresMomentum: Bool
     let action: (CGFloat, NSEvent.Phase) -> Void
 
     func makeNSView(context: Context) -> NSView {
@@ -48,12 +50,13 @@ private struct ScrollMonitor: NSViewRepresentable {
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) { coordinator.removeMonitor() }
 
     func makeCoordinator() -> Coordinator { 
-        Coordinator(direction: direction, threshold: threshold, action: action) 
+        Coordinator(direction: direction, threshold: threshold, ignoresMomentum: ignoresMomentum, action: action)
     }
 
     @MainActor final class Coordinator: NSObject {
         private let direction: PanDirection
         private let threshold: CGFloat
+        private let ignoresMomentum: Bool
         private let action: (CGFloat, NSEvent.Phase) -> Void
         private var monitor: Any?
         private var accumulated: CGFloat = 0
@@ -61,9 +64,10 @@ private struct ScrollMonitor: NSViewRepresentable {
             private var endTask: Task<Void, Never>?
         private let noiseThreshold: CGFloat = 0.2
 
-        init(direction: PanDirection, threshold: CGFloat, action: @escaping (CGFloat, NSEvent.Phase) -> Void) {
+        init(direction: PanDirection, threshold: CGFloat, ignoresMomentum: Bool, action: @escaping (CGFloat, NSEvent.Phase) -> Void) {
             self.direction = direction
             self.threshold = threshold
+            self.ignoresMomentum = ignoresMomentum
             self.action = action
         }
 
@@ -105,6 +109,9 @@ private struct ScrollMonitor: NSViewRepresentable {
         }
 
         private func handleScroll(_ event: NSEvent) {
+            if ignoresMomentum && !event.momentumPhase.isEmpty { return }
+            PanGestureState.lastScrollWasTrackpad = event.hasPreciseScrollingDeltas
+
             if event.phase == .ended || event.momentumPhase == .ended {
                 if active {
                     action(accumulated.magnitude, .ended)
@@ -141,5 +148,28 @@ private struct ScrollMonitor: NSViewRepresentable {
             // Schedule a timeout to end the gesture if no further scroll events arrive.
             scheduleEndTimeout()
         }
+    }
+}
+
+/// Facts about the most recent scroll gesture that the pan callbacks don't carry.
+@MainActor
+enum PanGestureState {
+    /// False for a mouse wheel, whose coarse steps make distance-based gestures unreliable.
+    static var lastScrollWasTrackpad = true
+}
+
+/// Picks the tab a horizontal swipe lands on. Kept free of UI so it can be tested.
+enum SwipeTabStepper {
+    /// Index of the destination tab, or nil when the swipe would not move (already at that end).
+    /// `toEnd` jumps to the last tab (forward) or the first (backward).
+    static func targetIndex(current: Int, count: Int, forward: Bool, toEnd: Bool) -> Int? {
+        guard count > 0, (0..<count).contains(current) else { return nil }
+        let target: Int
+        if toEnd {
+            target = forward ? count - 1 : 0
+        } else {
+            target = min(max(current + (forward ? 1 : -1), 0), count - 1)
+        }
+        return target == current ? nil : target
     }
 }

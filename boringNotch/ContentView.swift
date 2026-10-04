@@ -31,7 +31,14 @@ struct ContentView: View {
 
     @State private var haptics: Bool = false
 
-    @State private var didSkipSwipe: Bool = false
+    /// What the current two-finger horizontal swipe has done so far.
+    private enum HorizontalSwipe {
+        case idle
+        case switchedTab
+        case finished
+    }
+
+    @State private var horizontalSwipe: HorizontalSwipe = .idle
 
     @Namespace var albumArtNamespace
 
@@ -141,11 +148,11 @@ struct ContentView: View {
                             .panGesture(direction: .down) { translation, phase in
                                 handleDownGesture(translation: translation, phase: phase)
                             }
-                            .panGesture(direction: .left) { translation, phase in
-                                handleSkipSwipe(direction: .left, translation: translation, phase: phase)
+                            .panGesture(direction: .left, ignoresMomentum: true) { translation, phase in
+                                handleHorizontalSwipe(direction: .left, translation: translation, phase: phase)
                             }
-                            .panGesture(direction: .right) { translation, phase in
-                                handleSkipSwipe(direction: .right, translation: translation, phase: phase)
+                            .panGesture(direction: .right, ignoresMomentum: true) { translation, phase in
+                                handleHorizontalSwipe(direction: .right, translation: translation, phase: phase)
                             }
                     }
                     .conditionalModifier(Defaults[.closeGestureEnabled] && Defaults[.enableGestures]) { view in
@@ -593,27 +600,47 @@ struct ContentView: View {
 
     // MARK: - Gesture Handling
 
-    private func handleSkipSwipe(direction: PanDirection, translation: CGFloat, phase: NSEvent.Phase) {
-        // Reset the per-gesture latch when the swipe ends.
+    /// Two-finger left/right swipe while the notch is open. What it does depends on what's under the pointer:
+    /// the music player seeks ±10s (when a track is loaded), the calendar and shelf strips keep their own scrolling, and anywhere
+    /// else switches tabs. Swipe left = forward (next tab / +10s), right = backward. Continuing a tab
+    /// swipe to 3x the sensitivity distance jumps on to the last (or first) tab.
+    private func handleHorizontalSwipe(direction: PanDirection, translation: CGFloat, phase: NSEvent.Phase) {
         if phase == .ended {
-            didSkipSwipe = false
+            horizontalSwipe = .idle
             return
         }
 
-        // Only apply the skip while the notch is OPEN on the home view.
-        guard vm.notchState == .open, coordinator.currentView == .home else {
-            didSkipSwipe = false
+        guard vm.notchState == .open else {
+            horizontalSwipe = .idle
             return
         }
 
-        // Fire once per swipe, only once the horizontal travel passes the sensitivity threshold.
-        guard !didSkipSwipe else { return }
-        guard translation > Defaults[.gestureSensitivity] else { return }
+        let threshold = Defaults[.gestureSensitivity]
+        let forward = direction == .left
 
-        didSkipSwipe = true
+        switch horizontalSwipe {
+        case .idle:
+            guard translation > threshold else { return }
+            horizontalSwipe = .finished
 
-        // Swipe left = forward (+10s), swipe right = backward (-10s).
-        MusicManager.shared.handleSkipGesture(direction: direction == .left ? .forward : .backward)
+            if coordinator.currentView == .home && vm.isHoveringPlayer && MusicManager.shared.songDuration > 0 {
+                MusicManager.shared.handleSkipGesture(direction: forward ? .forward : .backward)
+            } else if vm.isHoveringCalendar || (coordinator.currentView == .shelf && vm.isHoveringShelfItems) {
+                return
+            } else if coordinator.stepTab(forward: forward) {
+                horizontalSwipe = .switchedTab
+            } else {
+                return
+            }
+
+        case .switchedTab:
+            guard PanGestureState.lastScrollWasTrackpad, translation > threshold * 3 else { return }
+            horizontalSwipe = .finished
+            guard coordinator.stepTab(forward: forward, toEnd: true) else { return }
+
+        case .finished:
+            return
+        }
 
         if Defaults[.enableHaptics] {
             haptics.toggle()

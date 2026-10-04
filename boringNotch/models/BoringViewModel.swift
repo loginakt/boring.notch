@@ -30,6 +30,9 @@ class BoringViewModel: NSObject, ObservableObject {
 
     @Published var edgeAutoOpenActive: Bool = false
     @Published var isHoveringCalendar: Bool = false
+    // Read only by the horizontal swipe handler, so not published (no redraws on hover).
+    var isHoveringPlayer: Bool = false
+    var isHoveringShelfItems: Bool = false
     @Published var isBatteryPopoverActive: Bool = false
 
     @Published var screenUUID: String?

@@ -233,6 +233,22 @@ final class XPCHelperClient {
         }
     }
 
+    /// The Claude desktop app's id for a Code-tab session, or nil if it isn't a desktop session.
+    nonisolated func findClaudeDesktopSession(cliSessionId: String) async -> String? {
+        do {
+            let service = await MainActor.run {
+                ensureRemoteService()
+            }
+            return try await service.withContinuation { service, continuation in
+                service.findClaudeDesktopSession(cliSessionId) { sessionId in
+                    continuation.resume(returning: sessionId)
+                }
+            }
+        } catch {
+            return nil
+        }
+    }
+
 }
 
 extension Notification.Name {

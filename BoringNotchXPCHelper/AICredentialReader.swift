@@ -22,7 +22,8 @@ enum AICredentialReader {
         diagLog.append("file:\(credentialsURL.path)")
         guard FileManager.default.fileExists(atPath: credentialsURL.path) else {
             diagLog.append("file:not_found")
-            return (nil, CredentialStatusValue.notFound.rawValue, "No Claude Code CLI login found. Run claude in Terminal and sign in. (\(diagLog.joined(separator: "; ")))")
+            print("[AICredentialReader] Claude credentials not found: \(diagLog.joined(separator: "; "))")
+            return (nil, CredentialStatusValue.notFound.rawValue, "No Claude Code sign-in found. Run claude in Terminal and sign in.")
         }
 
         do {

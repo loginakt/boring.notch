@@ -22,4 +22,6 @@ import Foundation
     func setScreenBrightness(_ value: Float, with reply: @escaping (Bool) -> Void)
     // AI CLI credential access (performed by the unsandboxed helper)
     func readClaudeCredentials(with reply: @escaping (String?, String?, String?) -> Void)
+    // Claude desktop session lookup for "open this chat" (the app's files are outside the sandbox)
+    func findClaudeDesktopSession(_ cliSessionId: String, with reply: @escaping (String?) -> Void)
 }

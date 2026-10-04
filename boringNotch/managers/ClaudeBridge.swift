@@ -15,11 +15,16 @@ import Defaults
 import Foundation
 import Network
 
+struct ClaudeOption: Hashable {
+    let label: String
+    let description: String
+}
+
 struct ClaudeQuestion: Identifiable {
     let id = UUID()
     let question: String
     let header: String
-    let options: [String]
+    let options: [ClaudeOption]
     let multiSelect: Bool
 }
 
@@ -29,6 +34,8 @@ struct ClaudeItem: Identifiable {
         case question([ClaudeQuestion])
         case finished(message: String, replyDeadline: Date?)
         case notice(message: String)
+        /// Something the notch can't answer; Claude shows its own prompt.
+        case handoff(message: String)
     }
 
     let id = UUID()
@@ -38,11 +45,13 @@ struct ClaudeItem: Identifiable {
     /// Original hook payload, needed to echo AskUserQuestion input back.
     let payload: [String: Any]
 
+    var sessionId: String? { payload["session_id"] as? String }
+
     var needsAnswer: Bool {
         switch kind {
         case .permission, .question: return true
         case .finished(_, let deadline): return deadline != nil
-        case .notice: return false
+        case .notice, .handoff: return false
         }
     }
 }
@@ -59,15 +68,19 @@ final class ClaudeBridge: ObservableObject {
     /// Must match the Stop hook's `timeout` in ~/.claude/settings.json.
     static let stopHookTimeout: TimeInterval = 120
 
-    /// Apps where the user is already looking at Claude; we stay quiet then.
-    private static let claudeFrontApps: Set<String> = [
-        "com.anthropic.claudefordesktop",
+    private static let claudeAppBundleID = "com.anthropic.claudefordesktop"
+    /// Where terminal sessions of Claude Code usually run, in the order we try to bring them forward.
+    private static let terminalApps = [
         "com.apple.Terminal",
         "com.googlecode.iterm2",
         "com.mitchellh.ghostty",
         "dev.warp.Warp-Stable",
         "com.microsoft.VSCode",
     ]
+    /// Apps where the user is already looking at Claude; we stay quiet then.
+    private static let claudeFrontApps = Set([claudeAppBundleID] + terminalApps)
+    /// Tools whose permission prompt offers more than allow / deny (e.g. plan approval options).
+    private static let handoffTools: Set<String> = ["ExitPlanMode"]
 
     @Published private(set) var items: [ClaudeItem] = []
     /// Read by the notch window to allow keyboard focus for the reply field.
@@ -136,7 +149,12 @@ final class ClaudeBridge: ObservableObject {
                 var buffer = buffer
                 if let data { buffer.append(data) }
                 if let request = Self.parseRequest(buffer) {
-                    ClaudeBridge.shared.handle(request, on: connection)
+                    if Self.isTrusted(request.headers) {
+                        ClaudeBridge.shared.handle(request.body, on: connection)
+                    } else {
+                        print("[ClaudeBridge] rejected a request that did not come from Claude Code")
+                        connection.cancel()
+                    }
                 } else if isComplete || error != nil || buffer.count > 1_000_000 {
                     connection.cancel()
                 } else {
@@ -146,21 +164,34 @@ final class ClaudeBridge: ObservableObject {
         }
     }
 
-    /// Returns the JSON body once the full HTTP request has arrived.
-    private static func parseRequest(_ data: Data) -> [String: Any]? {
+    /// Returns the lower-cased headers and JSON body once the full HTTP request has arrived.
+    private static func parseRequest(_ data: Data) -> (headers: [String: String], body: [String: Any])? {
         guard let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) else { return nil }
         let header = String(decoding: data[..<headerEnd.lowerBound], as: UTF8.self)
-        var length = 0
-        for line in header.split(separator: "\r\n") {
+        var headers: [String: String] = [:]
+        for line in header.split(separator: "\r\n").dropFirst() {
             let parts = line.split(separator: ":", maxSplits: 1)
-            if parts.count == 2, parts[0].lowercased() == "content-length" {
-                length = Int(parts[1].trimmingCharacters(in: .whitespaces)) ?? 0
+            if parts.count == 2 {
+                headers[parts[0].lowercased()] = parts[1].trimmingCharacters(in: .whitespaces)
             }
         }
+        let length = Int(headers["content-length"] ?? "") ?? 0
         let body = data[headerEnd.upperBound...]
         guard body.count >= length else { return nil }
         let json = try? JSONSerialization.jsonObject(with: body.prefix(length))
-        return json as? [String: Any] ?? [:]
+        return (headers, json as? [String: Any] ?? [:])
+    }
+
+    /// Claude Code's hooks send plain JSON POSTs with no browser headers. Web pages can also reach
+    /// 127.0.0.1, but browsers always add Origin / Sec-Fetch-* headers, can't send a JSON body
+    /// cross-site without a CORS preflight we never answer, and DNS-rebinding tricks leave a foreign Host.
+    private static func isTrusted(_ headers: [String: String]) -> Bool {
+        if headers["origin"] != nil || headers.keys.contains(where: { $0.hasPrefix("sec-fetch-") }) {
+            return false
+        }
+        let allowedHosts = ["127.0.0.1:\(port)", "localhost:\(port)"]
+        guard let host = headers["host"]?.lowercased(), allowedHosts.contains(host) else { return false }
+        return headers["content-type"]?.lowercased().hasPrefix("application/json") == true
     }
 
     private func send(_ body: String, on connection: NWConnection) {
@@ -189,22 +220,22 @@ final class ClaudeBridge: ObservableObject {
         case "PermissionRequest":
             let tool = payload["tool_name"] as? String ?? "Tool"
             let input = payload["tool_input"] as? [String: Any] ?? [:]
+            if Self.handoffTools.contains(tool) {
+                handOff("Claude needs a decision on \(tool).", project: project, payload: payload, on: connection)
+                return
+            }
             enqueue(ClaudeItem(kind: .permission(tool: tool, summary: Self.summarize(tool: tool, input: input)),
                                project: project, payload: payload),
                     connection: connection, timeout: 280)
 
         case "PreToolUse":
             let input = payload["tool_input"] as? [String: Any] ?? [:]
-            let questions = (input["questions"] as? [[String: Any]] ?? []).map { q in
-                ClaudeQuestion(
-                    question: q["question"] as? String ?? "",
-                    header: q["header"] as? String ?? "",
-                    options: (q["options"] as? [[String: Any]] ?? []).compactMap { $0["label"] as? String },
-                    multiSelect: q["multiSelect"] as? Bool ?? false
-                )
-            }
-            guard payload["tool_name"] as? String == "AskUserQuestion", !questions.isEmpty else {
+            guard payload["tool_name"] as? String == "AskUserQuestion" else {
                 send("", on: connection)
+                return
+            }
+            guard let questions = Self.parseQuestions(input) else {
+                handOff("Claude is asking something the notch can't show.", project: project, payload: payload, on: connection)
                 return
             }
             enqueue(ClaudeItem(kind: .question(questions), project: project, payload: payload),
@@ -230,11 +261,46 @@ final class ClaudeBridge: ObservableObject {
             // PermissionRequest / Stop already cover these.
             guard !["permission_prompt", "idle_prompt", "auth_success"].contains(type) else { return }
             let message = payload["message"] as? String ?? "Claude needs your attention."
+            if type.hasPrefix("elicitation") {
+                showNotice(ClaudeItem(kind: .handoff(message: message), project: project, payload: payload), duration: 20)
+                return
+            }
             showNotice(ClaudeItem(kind: .notice(message: message), project: project, payload: payload))
 
         default:
             send("", on: connection)
         }
+    }
+
+    /// Lets Claude show its own prompt and tells the user to continue there.
+    private func handOff(_ message: String, project: String, payload: [String: Any], on connection: NWConnection) {
+        send("", on: connection)
+        showNotice(ClaudeItem(kind: .handoff(message: message), project: project, payload: payload), duration: 20)
+    }
+
+    /// AskUserQuestion input the notch can answer, or nil when it needs Claude's own UI
+    /// (no questions, a question without options, or options with previews).
+    private static func parseQuestions(_ input: [String: Any]) -> [ClaudeQuestion]? {
+        guard let raw = input["questions"] as? [[String: Any]], !raw.isEmpty else { return nil }
+        var questions: [ClaudeQuestion] = []
+        for q in raw {
+            let rawOptions = q["options"] as? [[String: Any]] ?? []
+            let options = rawOptions.compactMap { option -> ClaudeOption? in
+                guard let label = option["label"] as? String, !label.isEmpty else { return nil }
+                return ClaudeOption(label: label, description: option["description"] as? String ?? "")
+            }
+            let hasPreview = rawOptions.contains { ($0["preview"] as? String).map { !$0.isEmpty } ?? false }
+            guard let text = q["question"] as? String, !text.isEmpty,
+                  !options.isEmpty, options.count == rawOptions.count, !hasPreview
+            else { return nil }
+            questions.append(ClaudeQuestion(
+                question: text,
+                header: q["header"] as? String ?? "",
+                options: options,
+                multiSelect: q["multiSelect"] as? Bool ?? false
+            ))
+        }
+        return questions
     }
 
     private func enqueue(_ item: ClaudeItem, connection: NWConnection, timeout: TimeInterval) {
@@ -319,6 +385,38 @@ final class ClaudeBridge: ObservableObject {
     /// Releases the request so Claude shows its own prompt instead.
     func answerInClaude(_ item: ClaudeItem) {
         resolve(item.id, body: "")
+    }
+
+    /// Opens the chat this item came from: the exact session in the Claude desktop app, or
+    /// the terminal app for sessions run there. Any pending question is handed back to Claude.
+    func openInClaude(_ item: ClaudeItem) {
+        dismiss(item.id)
+        Self.releaseKeyboard()
+        let sessionId = item.sessionId
+        Task {
+            var desktopSession: String?
+            if let sessionId {
+                desktopSession = await XPCHelperClient.shared.findClaudeDesktopSession(cliSessionId: sessionId)
+            }
+            await MainActor.run { Self.open(desktopSession: desktopSession) }
+        }
+    }
+
+    private static func open(desktopSession: String?) {
+        var components = URLComponents()
+        components.scheme = "claude"
+        components.host = "code"
+        components.path = "/continue"
+        components.queryItems = [URLQueryItem(name: "session", value: desktopSession ?? "last")]
+
+        if desktopSession == nil, let terminal = NSWorkspace.shared.runningApplications.first(where: {
+            $0.bundleIdentifier.map(terminalApps.contains) ?? false
+        }) {
+            // Not a desktop-app session: it's most likely in a terminal.
+            terminal.activate()
+        } else if let url = components.url {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     func dismiss(_ id: UUID) {
