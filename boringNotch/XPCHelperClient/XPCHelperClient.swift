@@ -233,20 +233,6 @@ final class XPCHelperClient {
         }
     }
 
-    nonisolated func readCodexCredentials() async -> (accessToken: String?, accountId: String?, status: String, message: String?) {
-        do {
-            let service = await MainActor.run {
-                ensureRemoteService()
-            }
-            return try await service.withContinuation { service, continuation in
-                service.readCodexCredentials { accessToken, accountId, status, message in
-                    continuation.resume(returning: (accessToken, accountId, status ?? "parse_error", message))
-                }
-            }
-        } catch {
-            return (nil, nil, "parse_error", error.localizedDescription)
-        }
-    }
 }
 
 extension Notification.Name {

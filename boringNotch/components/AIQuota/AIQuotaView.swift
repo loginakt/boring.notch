@@ -30,18 +30,11 @@ struct AIQuotaView: View {
                 .help("Refresh AI quota")
             }
 
-            HStack(spacing: 12) {
-                QuotaCardView(
-                    provider: .claude,
-                    result: quotaManager.claudeQuota,
-                    isLoading: quotaManager.isLoading
-                )
-                QuotaCardView(
-                    provider: .codex,
-                    result: quotaManager.codexQuota,
-                    isLoading: quotaManager.isLoading
-                )
-            }
+            QuotaCardView(
+                provider: .claude,
+                result: quotaManager.claudeQuota,
+                isLoading: quotaManager.isLoading
+            )
             .frame(maxHeight: .infinity)
         }
         .padding(.horizontal, 6)

@@ -7,19 +7,16 @@ import Foundation
 
 enum AIProvider: String, Codable, Equatable {
     case claude
-    case codex
 
     var displayName: String {
         switch self {
         case .claude: return "Claude"
-        case .codex: return "Codex"
         }
     }
 
     var iconName: String {
         switch self {
         case .claude: return "cloud.fill"
-        case .codex: return "terminal.fill"
         }
     }
 }
@@ -192,49 +189,6 @@ enum AIQuotaParser {
         )
     }
 
-    static func decodeCodexQuota(from data: Data) throws -> AIQuotaResult {
-        let response = try JSONDecoder().decode(CodexUsageResponse.self, from: data)
-        let windows = [
-            response.rateLimit?.primaryWindow,
-            response.rateLimit?.secondaryWindow,
-        ].compactMap { $0 }
-
-        let tiers = windows.compactMap { window -> QuotaTier? in
-            guard let usedPercent = window.usedPercent else { return nil }
-            let name = window.limitWindowSeconds.map(tierName(forWindowSeconds:)) ?? "unknown"
-            return QuotaTier(
-                name: name,
-                utilization: usedPercent,
-                resetsAt: window.resetAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
-            )
-        }
-
-        return AIQuotaResult(
-            provider: .codex,
-            credentialStatus: .valid,
-            success: true,
-            tiers: tiers,
-            extraUsage: nil,
-            error: nil,
-            queriedAt: Date()
-        )
-    }
-
-    static func tierName(forWindowSeconds seconds: Int) -> String {
-        switch seconds {
-        case 18_000:
-            return "five_hour"
-        case 604_800:
-            return "seven_day"
-        default:
-            let hours = seconds / 3_600
-            if hours >= 24 {
-                return "\(hours / 24)_day"
-            }
-            return "\(hours)_hour"
-        }
-    }
-
     static func parseDate(_ string: String) -> Date? {
         if let date = ISO8601DateFormatter.quotaWithFractionalSeconds.date(from: string) {
             return date
@@ -265,34 +219,4 @@ private extension ISO8601DateFormatter {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
-}
-
-private struct CodexUsageResponse: Decodable {
-    let rateLimit: CodexRateLimit?
-
-    enum CodingKeys: String, CodingKey {
-        case rateLimit = "rate_limit"
-    }
-}
-
-private struct CodexRateLimit: Decodable {
-    let primaryWindow: CodexRateLimitWindow?
-    let secondaryWindow: CodexRateLimitWindow?
-
-    enum CodingKeys: String, CodingKey {
-        case primaryWindow = "primary_window"
-        case secondaryWindow = "secondary_window"
-    }
-}
-
-private struct CodexRateLimitWindow: Decodable {
-    let usedPercent: Double?
-    let limitWindowSeconds: Int?
-    let resetAt: Int?
-
-    enum CodingKeys: String, CodingKey {
-        case usedPercent = "used_percent"
-        case limitWindowSeconds = "limit_window_seconds"
-        case resetAt = "reset_at"
-    }
 }

@@ -17748,7 +17748,7 @@
         }
       }
     },
-    "Show AI quota (Claude & Codex)" : {
+    "Show Claude usage quota" : {
 
     },
     "Show battery indicator" : {

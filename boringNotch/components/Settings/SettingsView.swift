@@ -1368,7 +1368,7 @@ struct Appearance: View {
                     Text("Show cool face animation while inactive")
                 }
                 Defaults.Toggle(key: .showAIQuota) {
-                    Text("Show AI quota (Claude & Codex)")
+                    Text("Show Claude usage quota")
                 }
                 Defaults.Toggle(key: .claudeBridgeEnabled) {
                     Text("Claude Code alerts & replies in the notch")

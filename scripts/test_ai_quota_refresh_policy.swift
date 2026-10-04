@@ -12,7 +12,6 @@ struct AIQuotaRefreshPolicyTest {
         policy.recordRateLimit(.claude, retryAfter: 300, now: now)
         assert(!policy.canRequest(.claude, now: now.addingTimeInterval(299)), "Should wait until retry-after expires")
         assert(policy.canRequest(.claude, now: now.addingTimeInterval(300)), "Should be requestable when retry-after expires")
-        assert(policy.canRequest(.codex, now: now), "Claude rate limit must not block Codex")
 
         policy.recordRateLimit(.claude, retryAfter: nil, now: now)
         assert(!policy.canRequest(.claude, now: now.addingTimeInterval(1_799)), "Should use default 30m backoff when retry-after is nil")

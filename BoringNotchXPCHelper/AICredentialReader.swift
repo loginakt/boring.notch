@@ -22,7 +22,7 @@ enum AICredentialReader {
         diagLog.append("file:\(credentialsURL.path)")
         guard FileManager.default.fileExists(atPath: credentialsURL.path) else {
             diagLog.append("file:not_found")
-            return (nil, CredentialStatusValue.notFound.rawValue, "diag: \(diagLog.joined(separator: "; "))")
+            return (nil, CredentialStatusValue.notFound.rawValue, "No Claude Code CLI login found. Run claude in Terminal and sign in. (\(diagLog.joined(separator: "; ")))")
         }
 
         do {
@@ -30,28 +30,6 @@ enum AICredentialReader {
             return parseClaudeCredentialsJSON(content)
         } catch {
             return (nil, CredentialStatusValue.parseError.rawValue, "Failed to read Claude credentials: \(error.localizedDescription)")
-        }
-    }
-
-    static func readCodexCredentials() -> (accessToken: String?, accountId: String?, status: String, message: String?) {
-        var diagLog: [String] = []
-        if let keychain = readKeychainPassword(service: "Codex Auth", diag: &diagLog) {
-            return parseCodexCredentialsJSON(keychain)
-        }
-
-        let authURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".codex")
-            .appendingPathComponent("auth.json")
-
-        guard FileManager.default.fileExists(atPath: authURL.path) else {
-            return (nil, nil, CredentialStatusValue.notFound.rawValue, nil)
-        }
-
-        do {
-            let content = try String(contentsOf: authURL, encoding: .utf8)
-            return parseCodexCredentialsJSON(content)
-        } catch {
-            return (nil, nil, CredentialStatusValue.parseError.rawValue, "Failed to read Codex auth: \(error.localizedDescription)")
         }
     }
 
@@ -136,34 +114,6 @@ enum AICredentialReader {
         return (accessToken, CredentialStatusValue.valid.rawValue, nil)
     }
 
-    private static func parseCodexCredentialsJSON(_ content: String) -> (accessToken: String?, accountId: String?, status: String, message: String?) {
-        guard
-            let data = content.data(using: .utf8),
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return (nil, nil, CredentialStatusValue.parseError.rawValue, "Failed to parse Codex auth JSON")
-        }
-
-        guard object["auth_mode"] as? String == "chatgpt" else {
-            return (nil, nil, CredentialStatusValue.notFound.rawValue, "Codex is not using ChatGPT OAuth mode")
-        }
-
-        guard let tokens = object["tokens"] as? [String: Any] else {
-            return (nil, nil, CredentialStatusValue.parseError.rawValue, "No Codex tokens found")
-        }
-
-        guard let accessToken = tokens["access_token"] as? String, !accessToken.isEmpty else {
-            return (nil, nil, CredentialStatusValue.parseError.rawValue, "Codex access_token is missing")
-        }
-
-        let accountId = tokens["account_id"] as? String
-        if let lastRefresh = object["last_refresh"] as? String, isCodexTokenStale(lastRefresh) {
-            return (accessToken, accountId, CredentialStatusValue.expired.rawValue, "Codex token may be stale")
-        }
-
-        return (accessToken, accountId, CredentialStatusValue.valid.rawValue, nil)
-    }
-
     private static func isExpired(_ value: Any) -> Bool {
         let now = Date()
 
@@ -178,11 +128,6 @@ enum AICredentialReader {
         }
 
         return false
-    }
-
-    private static func isCodexTokenStale(_ lastRefresh: String) -> Bool {
-        guard let date = parseDate(lastRefresh) else { return false }
-        return Date().timeIntervalSince(date) > 8 * 24 * 60 * 60
     }
 
     private static func parseDate(_ string: String) -> Date? {

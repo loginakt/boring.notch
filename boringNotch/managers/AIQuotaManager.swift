@@ -13,7 +13,6 @@ final class AIQuotaManager: ObservableObject {
     static let shared = AIQuotaManager()
 
     @Published var claudeQuota: AIQuotaResult?
-    @Published var codexQuota: AIQuotaResult?
     @Published var isLoading = false
 
     private var refreshTask: Task<Void, Never>?
@@ -70,17 +69,9 @@ final class AIQuotaManager: ObservableObject {
         guard Defaults[.showAIQuota] else { return }
 
         isLoading = true
-        async let claude = fetchClaudeQuota()
-        async let codex = fetchCodexQuota()
-
-        let newClaude = await claude
-        let newCodex = await codex
-
+        let newClaude = await fetchClaudeQuota()
         if newClaude.success || claudeQuota == nil {
             claudeQuota = newClaude
-        }
-        if newCodex.success || codexQuota == nil {
-            codexQuota = newCodex
         }
         isLoading = false
     }
@@ -160,41 +151,6 @@ final class AIQuotaManager: ObservableObject {
                 provider: .claude,
                 status: credentialStatus,
                 message: "Failed to parse Claude usage: \(error.localizedDescription)"
-            )
-        }
-    }
-
-    func fetchCodexQuota() async -> AIQuotaResult {
-        let credentials = await XPCHelperClient.shared.readCodexCredentials()
-        let credentialStatus = CredentialStatus(rawStatus: credentials.status)
-
-        guard let token = credentials.accessToken, !token.isEmpty else {
-            return .unavailable(
-                provider: .codex,
-                status: credentialStatus,
-                message: credentials.message
-            )
-        }
-
-        var request = URLRequest(url: URL(string: "https://chatgpt.com/backend-api/wham/usage")!)
-        request.timeoutInterval = 10
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("codex-cli", forHTTPHeaderField: "User-Agent")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let accountId = credentials.accountId, !accountId.isEmpty {
-            request.setValue(accountId, forHTTPHeaderField: "ChatGPT-Account-Id")
-        }
-
-        do {
-            let data = try await data(for: request, provider: .codex)
-            return try AIQuotaParser.decodeCodexQuota(from: data)
-        } catch let error as AIQuotaRequestError {
-            return error.result(provider: .codex, fallbackStatus: credentialStatus)
-        } catch {
-            return .unavailable(
-                provider: .codex,
-                status: credentialStatus,
-                message: "Failed to parse Codex usage: \(error.localizedDescription)"
             )
         }
     }

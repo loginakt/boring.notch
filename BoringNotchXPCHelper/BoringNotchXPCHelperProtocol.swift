@@ -22,7 +22,6 @@ import Foundation
     func setScreenBrightness(_ value: Float, with reply: @escaping (Bool) -> Void)
     // AI CLI credential access (performed by the unsandboxed helper)
     func readClaudeCredentials(with reply: @escaping (String?, String?, String?) -> Void)
-    func readCodexCredentials(with reply: @escaping (String?, String?, String?, String?) -> Void)
 }
 
 /*

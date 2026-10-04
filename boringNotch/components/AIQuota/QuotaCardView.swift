@@ -168,12 +168,7 @@ struct QuotaCardView: View {
             return error
         }
 
-        switch provider {
-        case .claude:
-            return "Run claude to login again."
-        case .codex:
-            return "Run codex login with ChatGPT auth."
-        }
+        return "Run claude in Terminal to sign in."
     }
 
     private static let resetFormatter: DateComponentsFormatter = {
