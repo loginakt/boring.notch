@@ -54,7 +54,7 @@ struct WheelPicker: View {
                     }
                 }
             }
-            .frame(height: 50)
+            .frame(height: 46)
             .scrollTargetLayout()
         }
         .scrollIndicators(.never)
@@ -89,7 +89,7 @@ struct WheelPicker: View {
     ) -> some View {
         let isToday = Calendar.current.isDateInToday(date)
         return Button(action: onClick) {
-            VStack(spacing: 8) {
+            VStack(spacing: 4) {
                 dayText(date: dateToString(for: date), isToday: isToday, isSelected: isSelected)
                 dateCircle(date: date, isToday: isToday, isSelected: isSelected)
             }
@@ -185,31 +185,33 @@ struct CalendarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading) {
-                    Text(selectedDate.formatted(.dateTime.month(.abbreviated)))
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white)
-                    Text(selectedDate.formatted(.dateTime.year()))
-                        .font(.title3)
-                        .fontWeight(.light)
-                        .foregroundColor(Color(white: 0.65))
-                }
+            // Month and year on one line above the wheel, so the wheel gets the full width
+            // and its centred (selected) date lines up with the events below.
+            HStack(spacing: 4) {
+                Text(selectedDate.formatted(.dateTime.month(.abbreviated)))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                Text(selectedDate.formatted(.dateTime.year()))
+                    .fontWeight(.light)
+                    .foregroundColor(Color(white: 0.65))
+                Spacer(minLength: 0)
+            }
+            .font(.subheadline)
+            .padding(.horizontal, 4)
+            .padding(.bottom, 2)
 
-                ZStack(alignment: .top) {
-                    WheelPicker(selectedDate: $selectedDate, config: Config())
-                    HStack(alignment: .top) {
-                        LinearGradient(
-                            colors: [Color.black, .clear], startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: 20)
-                        Spacer()
-                        LinearGradient(
-                            colors: [.clear, Color.black], startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: 20)
-                    }
+            ZStack(alignment: .top) {
+                WheelPicker(selectedDate: $selectedDate, config: Config())
+                HStack(alignment: .top) {
+                    LinearGradient(
+                        colors: [Color.black, .clear], startPoint: .leading, endPoint: .trailing
+                    )
+                    .frame(width: 20)
+                    Spacer()
+                    LinearGradient(
+                        colors: [.clear, Color.black], startPoint: .leading, endPoint: .trailing
+                    )
+                    .frame(width: 20)
                 }
             }
 
@@ -249,9 +251,9 @@ struct EmptyEventsView: View {
     let selectedDate: Date
     
     var body: some View {
-        VStack {
+        VStack(spacing: 2) {
             Image(systemName: "calendar.badge.checkmark")
-                .font(.title)
+                .font(.title3)
                 .foregroundColor(Color(white: 0.65))
             Text(Calendar.current.isDateInToday(selectedDate) ? "No events today" : "No events")
                 .font(.subheadline)
