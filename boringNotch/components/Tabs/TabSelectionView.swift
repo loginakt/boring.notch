@@ -18,8 +18,9 @@ struct TabModel: Identifiable {
 /// The open notch's tabs, in order. Shared by the tab bar and the horizontal swipe.
 @MainActor
 enum NotchTabs {
-    static func isTabBarShown(shelfEmpty: Bool = ShelfStateViewModel.shared.isEmpty) -> Bool {
-        Defaults[.showAIQuota]
+    static func isTabBarShown(shelfEmpty: Bool? = nil) -> Bool {
+        let shelfEmpty = shelfEmpty ?? ShelfStateViewModel.shared.isEmpty
+        return Defaults[.showAIQuota]
             || ((!shelfEmpty || BoringViewCoordinator.shared.alwaysShowTabs) && Defaults[.boringShelf])
     }
 
