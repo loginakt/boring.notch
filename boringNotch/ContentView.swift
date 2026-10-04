@@ -148,10 +148,10 @@ struct ContentView: View {
                             .panGesture(direction: .down) { translation, phase in
                                 handleDownGesture(translation: translation, phase: phase)
                             }
-                            .panGesture(direction: .left, ignoresMomentum: true) { translation, phase in
+                            .panGesture(direction: .left, ignoresMomentum: true, topEdgeCatch: vm.effectiveClosedNotchHeight) { translation, phase in
                                 handleHorizontalSwipe(direction: .left, translation: translation, phase: phase)
                             }
-                            .panGesture(direction: .right, ignoresMomentum: true) { translation, phase in
+                            .panGesture(direction: .right, ignoresMomentum: true, topEdgeCatch: vm.effectiveClosedNotchHeight) { translation, phase in
                                 handleHorizontalSwipe(direction: .right, translation: translation, phase: phase)
                             }
                     }
@@ -602,7 +602,8 @@ struct ContentView: View {
 
     /// Two-finger left/right swipe while the notch is open. What it does depends on what's under the pointer:
     /// the music player seeks ±10s (when a track is loaded), the calendar and shelf strips keep their own scrolling, and anywhere
-    /// else switches tabs. Swipe left = forward (next tab / +10s), right = backward. Continuing a tab
+    /// else switches tabs, as does the top strip (header / behind the camera) whatever the hover state says.
+    /// Swipe left = forward (next tab / +10s), right = backward. Continuing a tab
     /// swipe to 3x the sensitivity distance jumps on to the last (or first) tab.
     private func handleHorizontalSwipe(direction: PanDirection, translation: CGFloat, phase: NSEvent.Phase) {
         if phase == .ended {
@@ -623,7 +624,10 @@ struct ContentView: View {
             guard translation > threshold else { return }
             horizontalSwipe = .finished
 
-            if coordinator.currentView == .home && vm.isHoveringPlayer && MusicManager.shared.songDuration > 0 {
+            if isPointerInTopStrip() {
+                guard coordinator.stepTab(forward: forward) else { return }
+                horizontalSwipe = .switchedTab
+            } else if coordinator.currentView == .home && vm.isHoveringPlayer && MusicManager.shared.songDuration > 0 {
                 MusicManager.shared.handleSkipGesture(direction: forward ? .forward : .backward)
             } else if vm.isHoveringCalendar || (coordinator.currentView == .shelf && vm.isHoveringShelfItems) {
                 return
@@ -645,6 +649,15 @@ struct ContentView: View {
         if Defaults[.enableHaptics] {
             haptics.toggle()
         }
+    }
+
+    /// The header row of the open notch, including the area behind the camera housing.
+    private func isPointerInTopStrip() -> Bool {
+        let pointer = NSEvent.mouseLocation
+        guard let screen = vm.screenUUID.flatMap(NSScreen.screen(withUUID:))
+                ?? NSScreen.screens.first(where: { $0.frame.contains(pointer) })
+        else { return false }
+        return pointer.y >= screen.frame.maxY - vm.effectiveClosedNotchHeight
     }
 
     private func handleDownGesture(translation: CGFloat, phase: NSEvent.Phase) {

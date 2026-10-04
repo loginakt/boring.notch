@@ -44,8 +44,8 @@ struct ClaudeItem: Identifiable {
     let createdAt = Date()
     /// Original hook payload, needed to echo AskUserQuestion input back.
     let payload: [String: Any]
-
-    var sessionId: String? { payload["session_id"] as? String }
+    /// The Claude desktop app's id for this chat ("local_…"); nil for terminal sessions.
+    var desktopSessionId: String? = nil
 
     var needsAnswer: Bool {
         switch kind {
@@ -150,7 +150,7 @@ final class ClaudeBridge: ObservableObject {
                 if let data { buffer.append(data) }
                 if let request = Self.parseRequest(buffer) {
                     if Self.isTrusted(request.headers) {
-                        ClaudeBridge.shared.handle(request.body, on: connection)
+                        ClaudeBridge.shared.handle(request.body, headers: request.headers, on: connection)
                     } else {
                         print("[ClaudeBridge] rejected a request that did not come from Claude Code")
                         connection.cancel()
@@ -204,9 +204,16 @@ final class ClaudeBridge: ObservableObject {
 
     // MARK: - Hook handling
 
-    private func handle(_ payload: [String: Any], on connection: NWConnection) {
+    private func handle(_ payload: [String: Any], headers: [String: String], on connection: NWConnection) {
         let event = payload["hook_event_name"] as? String ?? ""
         let project = (payload["cwd"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent } ?? "Claude"
+        // Set by the hook config from the desktop app's environment; unset (or literal) in a terminal.
+        let desktopSession = headers["x-claude-desktop-session"].flatMap { id in
+            id.range(of: #"^local_[A-Za-z0-9-]{1,64}$"#, options: .regularExpression) != nil ? id : nil
+        }
+        func makeItem(_ kind: ClaudeItem.Kind) -> ClaudeItem {
+            ClaudeItem(kind: kind, project: project, payload: payload, desktopSessionId: desktopSession)
+        }
         let userIsWatchingClaude = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
             .map { Self.claudeFrontApps.contains($0) } ?? false
 
@@ -221,11 +228,10 @@ final class ClaudeBridge: ObservableObject {
             let tool = payload["tool_name"] as? String ?? "Tool"
             let input = payload["tool_input"] as? [String: Any] ?? [:]
             if Self.handoffTools.contains(tool) {
-                handOff("Claude needs a decision on \(tool).", project: project, payload: payload, on: connection)
+                handOff(makeItem(.handoff(message: "Claude needs a decision on \(tool).")), on: connection)
                 return
             }
-            enqueue(ClaudeItem(kind: .permission(tool: tool, summary: Self.summarize(tool: tool, input: input)),
-                               project: project, payload: payload),
+            enqueue(makeItem(.permission(tool: tool, summary: Self.summarize(tool: tool, input: input))),
                     connection: connection, timeout: 280)
 
         case "PreToolUse":
@@ -235,10 +241,10 @@ final class ClaudeBridge: ObservableObject {
                 return
             }
             guard let questions = Self.parseQuestions(input) else {
-                handOff("Claude is asking something the notch can't show.", project: project, payload: payload, on: connection)
+                handOff(makeItem(.handoff(message: "Claude is asking something the notch can't show.")), on: connection)
                 return
             }
-            enqueue(ClaudeItem(kind: .question(questions), project: project, payload: payload),
+            enqueue(makeItem(.question(questions)),
                     connection: connection, timeout: 280)
 
         case "Stop":
@@ -246,13 +252,11 @@ final class ClaudeBridge: ObservableObject {
             let window = min(Defaults[.claudeReplyWindow], Int(Self.stopHookTimeout) - 15)
             if window > 0 {
                 let deadline = Date().addingTimeInterval(TimeInterval(window))
-                enqueue(ClaudeItem(kind: .finished(message: message, replyDeadline: deadline),
-                                   project: project, payload: payload),
+                enqueue(makeItem(.finished(message: message, replyDeadline: deadline)),
                         connection: connection, timeout: TimeInterval(window))
             } else {
                 send("", on: connection)
-                showNotice(ClaudeItem(kind: .finished(message: message, replyDeadline: nil),
-                                      project: project, payload: payload))
+                showNotice(makeItem(.finished(message: message, replyDeadline: nil)))
             }
 
         case "Notification":
@@ -262,10 +266,10 @@ final class ClaudeBridge: ObservableObject {
             guard !["permission_prompt", "idle_prompt", "auth_success"].contains(type) else { return }
             let message = payload["message"] as? String ?? "Claude needs your attention."
             if type.hasPrefix("elicitation") {
-                showNotice(ClaudeItem(kind: .handoff(message: message), project: project, payload: payload), duration: 20)
+                showNotice(makeItem(.handoff(message: message)), duration: 20)
                 return
             }
-            showNotice(ClaudeItem(kind: .notice(message: message), project: project, payload: payload))
+            showNotice(makeItem(.notice(message: message)))
 
         default:
             send("", on: connection)
@@ -273,9 +277,9 @@ final class ClaudeBridge: ObservableObject {
     }
 
     /// Lets Claude show its own prompt and tells the user to continue there.
-    private func handOff(_ message: String, project: String, payload: [String: Any], on connection: NWConnection) {
+    private func handOff(_ item: ClaudeItem, on connection: NWConnection) {
         send("", on: connection)
-        showNotice(ClaudeItem(kind: .handoff(message: message), project: project, payload: payload), duration: 20)
+        showNotice(item, duration: 20)
     }
 
     /// AskUserQuestion input the notch can answer, or nil when it needs Claude's own UI
@@ -392,14 +396,7 @@ final class ClaudeBridge: ObservableObject {
     func openInClaude(_ item: ClaudeItem) {
         dismiss(item.id)
         Self.releaseKeyboard()
-        let sessionId = item.sessionId
-        Task {
-            var desktopSession: String?
-            if let sessionId {
-                desktopSession = await XPCHelperClient.shared.findClaudeDesktopSession(cliSessionId: sessionId)
-            }
-            await MainActor.run { Self.open(desktopSession: desktopSession) }
-        }
+        Self.open(desktopSession: item.desktopSessionId)
     }
 
     private static func open(desktopSession: String?) {

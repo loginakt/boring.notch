@@ -15,10 +15,6 @@ class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
         let credentials = AICredentialReader.readClaudeCredentials()
         reply(credentials.accessToken, credentials.status, credentials.message)
     }
-
-    @objc func findClaudeDesktopSession(_ cliSessionId: String, with reply: @escaping (String?) -> Void) {
-        reply(ClaudeSessionLocator.desktopSessionId(forCLISession: cliSessionId))
-    }
     
     @objc func isAccessibilityAuthorized(with reply: @escaping (Bool) -> Void) {
         reply(AXIsProcessTrusted())

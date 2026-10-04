@@ -20,7 +20,9 @@ enum PanDirection {
 
 extension View {
     /// `ignoresMomentum` drops the trackpad's post-lift glide so one swipe is measured by finger travel alone.
-    func panGesture(direction: PanDirection, threshold: CGFloat = 4, ignoresMomentum: Bool = false, action: @escaping (CGFloat, NSEvent.Phase) -> Void) -> some View {
+    /// `topEdgeCatch` also handles scrolls macOS routes elsewhere while the pointer is within that many
+    /// points of the window's top edge (e.g. tucked behind the camera housing).
+    func panGesture(direction: PanDirection, threshold: CGFloat = 4, ignoresMomentum: Bool = false, topEdgeCatch: CGFloat? = nil, action: @escaping (CGFloat, NSEvent.Phase) -> Void) -> some View {
         self
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -31,7 +33,7 @@ extension View {
                     }
                     .onEnded { _ in action(0, .ended) }
             )
-            .background(ScrollMonitor(direction: direction, threshold: threshold, ignoresMomentum: ignoresMomentum, action: action))
+            .background(ScrollMonitor(direction: direction, threshold: threshold, ignoresMomentum: ignoresMomentum, topEdgeCatch: topEdgeCatch, action: action))
     }
 }
 
@@ -39,6 +41,7 @@ private struct ScrollMonitor: NSViewRepresentable {
     let direction: PanDirection
     let threshold: CGFloat
     let ignoresMomentum: Bool
+    let topEdgeCatch: CGFloat?
     let action: (CGFloat, NSEvent.Phase) -> Void
 
     func makeNSView(context: Context) -> NSView {
@@ -50,24 +53,27 @@ private struct ScrollMonitor: NSViewRepresentable {
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) { coordinator.removeMonitor() }
 
     func makeCoordinator() -> Coordinator { 
-        Coordinator(direction: direction, threshold: threshold, ignoresMomentum: ignoresMomentum, action: action)
+        Coordinator(direction: direction, threshold: threshold, ignoresMomentum: ignoresMomentum, topEdgeCatch: topEdgeCatch, action: action)
     }
 
     @MainActor final class Coordinator: NSObject {
         private let direction: PanDirection
         private let threshold: CGFloat
         private let ignoresMomentum: Bool
+        private let topEdgeCatch: CGFloat?
         private let action: (CGFloat, NSEvent.Phase) -> Void
         private var monitor: Any?
+        private var globalMonitor: Any?
         private var accumulated: CGFloat = 0
         private var active = false
             private var endTask: Task<Void, Never>?
         private let noiseThreshold: CGFloat = 0.2
 
-        init(direction: PanDirection, threshold: CGFloat, ignoresMomentum: Bool, action: @escaping (CGFloat, NSEvent.Phase) -> Void) {
+        init(direction: PanDirection, threshold: CGFloat, ignoresMomentum: Bool, topEdgeCatch: CGFloat?, action: @escaping (CGFloat, NSEvent.Phase) -> Void) {
             self.direction = direction
             self.threshold = threshold
             self.ignoresMomentum = ignoresMomentum
+            self.topEdgeCatch = topEdgeCatch
             self.action = action
         }
 
@@ -95,12 +101,29 @@ private struct ScrollMonitor: NSViewRepresentable {
                 self.handleScroll(event)
                 return event
             }
+            if let topEdgeCatch {
+                // Events this window receives go through the local monitor above; this only sees
+                // ones delivered to other apps, so nothing is counted twice.
+                globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.scrollWheel]) { [weak self, weak view] event in
+                    guard let self, let window = view?.window, window.isVisible else { return }
+                    let pointer = NSEvent.mouseLocation
+                    let frame = window.frame
+                    guard pointer.x >= frame.minX, pointer.x <= frame.maxX,
+                          pointer.y <= frame.maxY, pointer.y >= frame.maxY - topEdgeCatch
+                    else { return }
+                    self.handleScroll(event)
+                }
+            }
         }
 
         func removeMonitor() {
             if let monitor = monitor {
                 NSEvent.removeMonitor(monitor)
                 self.monitor = nil
+            }
+            if let globalMonitor {
+                NSEvent.removeMonitor(globalMonitor)
+                self.globalMonitor = nil
             }
             accumulated = 0
             active = false

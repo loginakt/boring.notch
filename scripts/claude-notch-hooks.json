@@ -1,16 +1,16 @@
 {
   "hooks": {
     "PermissionRequest": [
-      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:47821/claude", "timeout": 300 }] }
+      {"hooks": [{"type": "http", "url": "http://127.0.0.1:47821/claude", "timeout": 300, "headers": {"X-Claude-Desktop-Session": "$CLAUDE_CODE_HOST_SESSION_ID"}, "allowedEnvVars": ["CLAUDE_CODE_HOST_SESSION_ID"]}]}
     ],
     "PreToolUse": [
-      { "matcher": "AskUserQuestion", "hooks": [{ "type": "http", "url": "http://127.0.0.1:47821/claude", "timeout": 300 }] }
+      {"matcher": "AskUserQuestion", "hooks": [{"type": "http", "url": "http://127.0.0.1:47821/claude", "timeout": 300, "headers": {"X-Claude-Desktop-Session": "$CLAUDE_CODE_HOST_SESSION_ID"}, "allowedEnvVars": ["CLAUDE_CODE_HOST_SESSION_ID"]}]}
     ],
     "Stop": [
-      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:47821/claude", "timeout": 120 }] }
+      {"hooks": [{"type": "http", "url": "http://127.0.0.1:47821/claude", "timeout": 120, "headers": {"X-Claude-Desktop-Session": "$CLAUDE_CODE_HOST_SESSION_ID"}, "allowedEnvVars": ["CLAUDE_CODE_HOST_SESSION_ID"]}]}
     ],
     "Notification": [
-      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:47821/claude", "timeout": 5 }] }
+      {"hooks": [{"type": "http", "url": "http://127.0.0.1:47821/claude", "timeout": 5, "headers": {"X-Claude-Desktop-Session": "$CLAUDE_CODE_HOST_SESSION_ID"}, "allowedEnvVars": ["CLAUDE_CODE_HOST_SESSION_ID"]}]}
     ]
   }
 }
