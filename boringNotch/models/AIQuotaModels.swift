@@ -119,6 +119,13 @@ struct AIQuotaRefreshPolicy {
         blockedUntil[provider] = (now.addingTimeInterval(Self.authFailureBackoff), .authFailed)
     }
 
+    /// Lifts an auth-failure backoff (but not a rate limit) so a manual refresh can retry.
+    mutating func clearAuthFailure(_ provider: AIProvider) {
+        if blockedUntil[provider]?.reason == .authFailed {
+            blockedUntil[provider] = nil
+        }
+    }
+
     mutating func recordSuccess(_ provider: AIProvider) {
         blockedUntil[provider] = nil
     }

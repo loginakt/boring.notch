@@ -255,12 +255,17 @@ final class ClaudeBridge: ObservableObject {
         NotificationCenter.default.post(name: .claudeBridgeOpenNotch, object: nil)
     }
 
-    private func showNotice(_ item: ClaudeItem) {
+    /// Shows a short notice raised elsewhere in the app (e.g. the usage quota).
+    func postNotice(_ message: String, source: String, duration: TimeInterval = 6) {
+        showNotice(ClaudeItem(kind: .notice(message: message), project: source, payload: [:]), duration: duration)
+    }
+
+    private func showNotice(_ item: ClaudeItem, duration: TimeInterval = 6) {
         items.removeAll { !$0.needsAnswer }
         items.append(item)
         NotificationCenter.default.post(name: .claudeBridgeOpenNotch, object: nil)
         Task { [weak self] in
-            try? await Task.sleep(for: .seconds(6))
+            try? await Task.sleep(for: .seconds(duration))
             self?.dismiss(item.id)
         }
     }

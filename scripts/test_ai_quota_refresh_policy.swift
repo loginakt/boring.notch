@@ -22,6 +22,14 @@ struct AIQuotaRefreshPolicyTest {
         assert(!policy.canRequest(.claude, now: now.addingTimeInterval(899)), "Auth failure should block for 15 minutes")
         assert(policy.canRequest(.claude, now: now.addingTimeInterval(900)), "Auth failure backoff should expire after 15 minutes")
 
+        // Manual refresh lifts an auth backoff but not a rate limit
+        policy.recordAuthFailure(.claude, now: now)
+        policy.clearAuthFailure(.claude)
+        assert(policy.canRequest(.claude, now: now), "Clearing an auth failure should allow a retry")
+        policy.recordRateLimit(.claude, retryAfter: 300, now: now)
+        policy.clearAuthFailure(.claude)
+        assert(!policy.canRequest(.claude, now: now), "Clearing an auth failure must not lift a rate limit")
+
         // Block message
         policy.recordAuthFailure(.claude, now: now)
         let msg = policy.blockMessage(for: .claude, now: now)

@@ -15,9 +15,14 @@ struct AIQuotaView: View {
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                 Spacer()
+                if !quotaManager.isClaudeRunning {
+                    Text("Paused · Claude closed")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(.gray)
+                }
                 Button {
                     Task {
-                        await quotaManager.fetchAll()
+                        await quotaManager.refreshNow()
                     }
                 } label: {
                     Image(systemName: "arrow.clockwise")
@@ -27,13 +32,14 @@ struct AIQuotaView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(quotaManager.isLoading ? Color.secondary : Color.white)
                 .disabled(quotaManager.isLoading)
-                .help("Refresh AI quota")
+                .help(quotaManager.isClaudeRunning ? "Refresh AI quota" : "Refresh once (auto-refresh runs only while Claude is open)")
             }
 
             QuotaCardView(
                 provider: .claude,
                 result: quotaManager.claudeQuota,
-                isLoading: quotaManager.isLoading
+                isLoading: quotaManager.isLoading,
+                signInExpired: quotaManager.signInExpired
             )
             .frame(maxHeight: .infinity)
         }

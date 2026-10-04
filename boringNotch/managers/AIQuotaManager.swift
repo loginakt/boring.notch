@@ -3,23 +3,51 @@
 //  boringNotch
 //
 
+import AppKit
 import Combine
 import Defaults
 import Foundation
 import Security
 
+/// Polls Claude usage every 2 minutes, but only while the Claude app is running.
+/// Otherwise the last successful result (persisted across launches) is shown and
+/// the user can still trigger a one-off refresh by hand.
 @MainActor
 final class AIQuotaManager: ObservableObject {
     static let shared = AIQuotaManager()
 
+    private static let claudeBundleID = "com.anthropic.claudefordesktop"
+    private static let lastResultKey = "aiQuotaLastClaudeResult"
+
     @Published var claudeQuota: AIQuotaResult?
     @Published var isLoading = false
+    @Published private(set) var isClaudeRunning = false
+    /// True once Claude rejects the stored sign-in; cleared by the next successful fetch.
+    @Published private(set) var signInExpired = false
 
     private var refreshTask: Task<Void, Never>?
     private var defaultsCancellable: AnyCancellable?
+    private var workspaceObservers: [NSObjectProtocol] = []
     private var refreshPolicy = AIQuotaRefreshPolicy()
 
     private init() {
+        claudeQuota = Self.loadLastResult()
+        isClaudeRunning = NSWorkspace.shared.runningApplications
+            .contains { $0.bundleIdentifier == Self.claudeBundleID }
+
+        let center = NSWorkspace.shared.notificationCenter
+        let claudeBundleID = Self.claudeBundleID
+        for (name, running) in [
+            (NSWorkspace.didLaunchApplicationNotification, true),
+            (NSWorkspace.didTerminateApplicationNotification, false),
+        ] {
+            workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { note in
+                let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                guard app?.bundleIdentifier == claudeBundleID else { return }
+                Task { @MainActor in AIQuotaManager.shared.claudeRunningChanged(running) }
+            })
+        }
+
         defaultsCancellable = Defaults.publisher(.showAIQuota)
             .sink { [weak self] change in
                 Task { @MainActor in
@@ -34,13 +62,20 @@ final class AIQuotaManager: ObservableObject {
                 }
             }
 
-        if Defaults[.showAIQuota] {
+        startAutoRefresh()
+    }
+
+    private func claudeRunningChanged(_ running: Bool) {
+        isClaudeRunning = running
+        if running {
             startAutoRefresh()
+        } else {
+            stopAutoRefresh()
         }
     }
 
     func startAutoRefresh() {
-        guard Defaults[.showAIQuota] else { return }
+        guard Defaults[.showAIQuota], isClaudeRunning else { return }
 
         refreshTask?.cancel()
         refreshTask = Task { [weak self] in
@@ -65,15 +100,49 @@ final class AIQuotaManager: ObservableObject {
         refreshTask = nil
     }
 
+    /// Opening the quota tab refreshes only while Claude is running.
+    func refreshIfClaudeRunning() async {
+        guard isClaudeRunning else { return }
+        await fetchAll()
+    }
+
+    /// One-off refresh from the refresh button; works even when Claude is closed
+    /// and retries right away after a sign-in failure (the user may have just signed in).
+    func refreshNow() async {
+        refreshPolicy.clearAuthFailure(.claude)
+        await fetchAll()
+    }
+
     func fetchAll() async {
-        guard Defaults[.showAIQuota] else { return }
+        guard Defaults[.showAIQuota], !isLoading else { return }
 
         isLoading = true
         let newClaude = await fetchClaudeQuota()
         if newClaude.success || claudeQuota == nil {
             claudeQuota = newClaude
         }
+        if newClaude.success {
+            signInExpired = false
+            Self.saveLastResult(newClaude)
+        } else if newClaude.credentialStatus == .expired, !signInExpired {
+            signInExpired = true
+            ClaudeBridge.shared.postNotice(
+                "Your Claude sign-in expired, so usage can't update. Run claude in Terminal to sign in again.",
+                source: "Usage quota",
+                duration: 15
+            )
+        }
         isLoading = false
+    }
+
+    private static func loadLastResult() -> AIQuotaResult? {
+        guard let data = UserDefaults.standard.data(forKey: lastResultKey) else { return nil }
+        return try? JSONDecoder().decode(AIQuotaResult.self, from: data)
+    }
+
+    private static func saveLastResult(_ result: AIQuotaResult) {
+        guard let data = try? JSONEncoder().encode(result) else { return }
+        UserDefaults.standard.set(data, forKey: lastResultKey)
     }
 
     func fetchClaudeQuota() async -> AIQuotaResult {

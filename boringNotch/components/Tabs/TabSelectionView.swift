@@ -39,7 +39,7 @@ struct TabSelectionView: View {
                         }
                         if tab.view == .quota {
                             Task {
-                                await AIQuotaManager.shared.fetchAll()
+                                await AIQuotaManager.shared.refreshIfClaudeRunning()
                             }
                         }
                     }

@@ -9,6 +9,7 @@ struct QuotaCardView: View {
     let provider: AIProvider
     let result: AIQuotaResult?
     let isLoading: Bool
+    var signInExpired = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -49,7 +50,7 @@ struct QuotaCardView: View {
     private var statusDot: some View {
         if let result, result.success {
             Circle()
-                .fill(Color.green)
+                .fill(signInExpired ? Color.orange : Color.green)
                 .frame(width: 7, height: 7)
         } else if result != nil {
             Circle()
@@ -109,6 +110,13 @@ struct QuotaCardView: View {
                 Text("Updated \(queriedAt, style: .relative) ago")
                     .font(.system(size: 9))
                     .foregroundStyle(.quaternary)
+                    .lineLimit(1)
+            }
+
+            if signInExpired {
+                Text("Sign-in expired. Run claude in Terminal.")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.orange)
                     .lineLimit(1)
             }
         }
