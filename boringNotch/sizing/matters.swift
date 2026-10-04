@@ -14,7 +14,10 @@ let batterySneakSize: CGSize = .init(width: 160, height: 1)
 
 let shadowPadding: CGFloat = 20
 let openNotchSize: CGSize = .init(width: 640, height: 190)
-let windowSize: CGSize = .init(width: openNotchSize.width, height: openNotchSize.height + shadowPadding)
+/// Taller open notch for reading a full Claude message.
+let expandedNotchSize: CGSize = .init(width: openNotchSize.width, height: 440)
+// Sized for the expanded notch; the unused part is transparent, so clicks pass through it.
+let windowSize: CGSize = .init(width: expandedNotchSize.width, height: expandedNotchSize.height + shadowPadding)
 let cornerRadiusInsets: (opened: (top: CGFloat, bottom: CGFloat), closed: (top: CGFloat, bottom: CGFloat)) = (opened: (top: 19, bottom: 24), closed: (top: 6, bottom: 14))
 
 enum MusicPlayerImageSizes {

@@ -192,6 +192,16 @@ class BoringViewModel: NSObject, ObservableObject {
         return false
     }
 
+    /// Grows the open notch to `expandedNotchSize` (or back) for reading long content.
+    func setExpanded(_ expanded: Bool) {
+        guard notchState == .open else { return }
+        let size = expanded ? expandedNotchSize : openNotchSize
+        guard notchSize != size else { return }
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
+            notchSize = size
+        }
+    }
+
     func open() {
         self.notchSize = openNotchSize
         self.notchState = .open

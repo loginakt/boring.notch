@@ -34,6 +34,7 @@ struct ClaudeBridgeView: View {
 }
 
 private struct ClaudeItemCard: View {
+    @EnvironmentObject private var vm: BoringViewModel
     let item: ClaudeItem
     let queued: Int
 
@@ -48,6 +49,8 @@ private struct ClaudeItemCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.08), lineWidth: 1))
+        // Answered, dismissed or switched away: shrink the notch back.
+        .onDisappear { vm.setExpanded(false) }
     }
 
     private var header: some View {
@@ -71,6 +74,7 @@ private struct ClaudeItemCard: View {
             if isExpandable {
                 Button {
                     expanded.toggle()
+                    vm.setExpanded(expanded)
                     // Reading a long reply shouldn't let the reply window run out.
                     if expanded, case .finished(_, let deadline) = item.kind, deadline != nil {
                         ClaudeBridge.shared.keepForReply(item)
