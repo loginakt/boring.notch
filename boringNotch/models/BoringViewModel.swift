@@ -202,6 +202,10 @@ class BoringViewModel: NSObject, ObservableObject {
         if SharingStateManager.shared.preventNotchClose {
             return
         }
+        // Keep the notch open while Claude is waiting on an answer
+        if ClaudeBridge.shared.holdsNotchOpen {
+            return
+        }
         self.notchSize = getClosedNotchSize(screenUUID: self.screenUUID)
         self.closedNotchSize = self.notchSize
         self.notchState = .closed

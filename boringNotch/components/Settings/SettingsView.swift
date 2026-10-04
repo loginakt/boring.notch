@@ -1139,6 +1139,8 @@ struct Appearance: View {
     @Default(.useMusicVisualizer) var useMusicVisualizer
     @Default(.customVisualizers) var customVisualizers
     @Default(.selectedVisualizer) var selectedVisualizer
+    @Default(.claudeReplyWindow) var claudeReplyWindow
+    @Default(.claudeBridgeEnabled) var claudeBridgeEnabled
 
     let icons: [String] = ["logo2"]
     @State private var selectedIcon: String = "logo2"
@@ -1368,6 +1370,16 @@ struct Appearance: View {
                 Defaults.Toggle(key: .showAIQuota) {
                     Text("Show AI quota (Claude & Codex)")
                 }
+                Defaults.Toggle(key: .claudeBridgeEnabled) {
+                    Text("Claude Code alerts & replies in the notch")
+                }
+                Picker("Reply window after Claude finishes", selection: $claudeReplyWindow) {
+                    Text("Off").tag(0)
+                    Text("20 seconds").tag(20)
+                    Text("45 seconds").tag(45)
+                    Text("90 seconds").tag(90)
+                }
+                .disabled(!claudeBridgeEnabled)
             } header: {
                 HStack {
                     Text("Additional features")

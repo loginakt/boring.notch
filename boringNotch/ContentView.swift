@@ -180,6 +180,20 @@ struct ContentView: View {
                             }
                         }
                     }
+                    .onReceive(NotificationCenter.default.publisher(for: .claudeBridgeOpenNotch)) { _ in
+                        // With a notch on every display, only the main one shows Claude.
+                        if Defaults[.showOnAllDisplays] && vm.screenUUID != NSScreen.main?.displayUUID { return }
+                        coordinator.currentView = .claude
+                        doOpen()
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .claudeBridgeCloseNotch)) { _ in
+                        guard coordinator.currentView == .claude else { return }
+                        if vm.notchState == .open && !isHovering {
+                            vm.close()
+                        } else {
+                            coordinator.currentView = .home
+                        }
+                    }
                     .onChange(of: vm.notchState) { _, newState in
                         if newState == .closed && isHovering {
                             withAnimation {
@@ -368,6 +382,8 @@ struct ContentView: View {
                         ShelfView()
                     case .quota:
                         AIQuotaView()
+                    case .claude:
+                        ClaudeBridgeView()
                     }
                 }
                 .transition(
@@ -584,8 +600,8 @@ struct ContentView: View {
             return
         }
 
-        // Only apply the skip while the notch is OPEN.
-        guard vm.notchState == .open else {
+        // Only apply the skip while the notch is OPEN on the home view.
+        guard vm.notchState == .open, coordinator.currentView == .home else {
             didSkipSwipe = false
             return
         }

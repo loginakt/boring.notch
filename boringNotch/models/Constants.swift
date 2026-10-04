@@ -108,6 +108,8 @@ extension Defaults.Keys {
     static let tileShowLabels = Key<Bool>("tileShowLabels", default: false)
     static let showCalendar = Key<Bool>("showCalendar", default: false)
     static let showAIQuota = Key<Bool>("showAIQuota", default: false)
+    static let claudeBridgeEnabled = Key<Bool>("claudeBridgeEnabled", default: true)
+    static let claudeReplyWindow = Key<Int>("claudeReplyWindow", default: 45)
     static let hideCompletedReminders = Key<Bool>("hideCompletedReminders", default: true)
     static let sliderColor = Key<SliderColorEnum>(
         "sliderUseAlbumArtColor",

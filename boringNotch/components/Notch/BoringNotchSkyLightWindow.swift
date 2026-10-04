@@ -106,6 +106,7 @@ class BoringNotchSkyLightWindow: NSPanel {
     
     private var observers: Set<AnyCancellable> = []
     
-    override var canBecomeKey: Bool { false }
+    // Only while typing a reply to Claude in the notch.
+    override var canBecomeKey: Bool { ClaudeBridge.allowsKeyWindow }
     override var canBecomeMain: Bool { false }
 }

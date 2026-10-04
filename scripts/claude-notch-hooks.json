@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PermissionRequest": [
+      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:47821/claude", "timeout": 300 }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "AskUserQuestion", "hooks": [{ "type": "http", "url": "http://127.0.0.1:47821/claude", "timeout": 300 }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:47821/claude", "timeout": 120 }] }
+    ],
+    "Notification": [
+      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:47821/claude", "timeout": 5 }] }
+    ]
+  }
+}
